@@ -15,6 +15,8 @@ export interface PortcullisConfig {
 	scopes: string;
 	/** Store tokens in this file (0600) instead of the OS keychain. */
 	tokenFile: string | null;
+	/** Show the signed-in identity in omp's status line. */
+	statusLine: boolean;
 }
 
 export const DEFAULT_CONFIG_PATH = path.join(os.homedir(), ".config", "portcullis", "config.json");
@@ -56,7 +58,11 @@ export function parseConfig(raw: unknown, source: string): PortcullisConfig {
 		typeof obj.tokenFile === "string" && obj.tokenFile.trim()
 			? path.resolve(obj.tokenFile.trim().replace(/^~(?=\/)/, os.homedir()))
 			: null;
-	return { issuer, clientId, hosts, scopes, tokenFile };
+	if (obj.statusLine !== undefined && typeof obj.statusLine !== "boolean") {
+		throw new Error(`${source}: "statusLine" must be true or false`);
+	}
+	const statusLine = obj.statusLine !== false;
+	return { issuer, clientId, hosts, scopes, tokenFile, statusLine };
 }
 
 /** `null` when no config file exists; throws on a malformed one. */

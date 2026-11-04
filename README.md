@@ -103,6 +103,7 @@ sequenceDiagram
 | `hosts` | required | Relay hosts that get the token, as `hostname` or `hostname:port`. Every other WebSocket is left untouched |
 | `scopes` | `openid profile email offline_access` | `offline_access` gives a refresh token |
 | `tokenFile` | unset | Store tokens in this file (mode 0600) instead of the OS keychain |
+| `statusLine` | `true` | Show the signed-in identity (or "signed out") in omp's status line; `/portcullis status` works either way |
 
 ### Behaviour
 

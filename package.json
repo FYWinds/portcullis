@@ -1,6 +1,6 @@
 {
 	"name": "portcullis",
-	"version": "0.2.1",
+	"version": "0.2.2",
 	"private": true,
 	"type": "module",
 	"description": "Self-hosted omp collab behind OIDC: a relay for oauth2-proxy and an omp plugin that signs collab connections",

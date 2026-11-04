@@ -61,6 +61,7 @@ function setup(expiresInMs: number, now = 1_000_000_000_000) {
 		hosts: ["relay.example"],
 		scopes: "openid offline_access",
 		tokenFile: null,
+		statusLine: true,
 	};
 	const store = memoryStore({ idToken: jwt({ exp: 0 }), refreshToken: "r1", expiresAt: now + expiresInMs });
 	const manager = new TokenManager(config, store, () => now);

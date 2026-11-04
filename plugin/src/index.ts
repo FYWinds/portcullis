@@ -72,7 +72,7 @@ export default async function portcullis(pi: ExtensionAPI): Promise<void> {
 	}
 
 	function refreshStatus(): void {
-		if (!ui || !manager) return;
+		if (!ui || !manager || !config?.statusLine) return;
 		const tokens = manager.tokens;
 		ui.setStatus(STATUS_KEY, tokens ? `🔐 ${tokenIdentity(tokens.idToken)}` : "🔐 signed out");
 	}
