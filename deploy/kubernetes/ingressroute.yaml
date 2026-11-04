@@ -1,0 +1,48 @@
+# Traefik routing on one hostname:
+#   /r/*, /auth/check -> forwardAuth (oauth2-proxy) -> relay
+#   /oauth2/*         -> oauth2-proxy (login, callback)
+#   everything else   -> relay (public browser client)
+# TLS: add `tls: {}` (default certificate) or `tls.certResolver` / `tls.secretName`.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: oauth2-proxy-auth
+  namespace: portcullis
+spec:
+  forwardAuth:
+    address: http://oauth2-proxy.portcullis.svc.cluster.local/
+    trustForwardHeader: true
+    # Copied from the auth response to the upstream request; Traefik drops
+    # any client-sent copies of these headers.
+    authResponseHeaders:
+      - X-Auth-Request-Email
+      - X-Auth-Request-User
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: portcullis
+  namespace: portcullis
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`collab.example.com`) && (PathPrefix(`/r/`) || Path(`/auth/check`))
+      middlewares:
+        - name: oauth2-proxy-auth
+      services:
+        - name: relay
+          port: 7466
+    - kind: Rule
+      match: Host(`collab.example.com`) && PathPrefix(`/oauth2/`)
+      services:
+        - name: oauth2-proxy
+          port: 80
+    # Must never match the gated paths, or a client-sent identity header would
+    # reach the relay unchecked.
+    - kind: Rule
+      match: Host(`collab.example.com`) && !PathPrefix(`/r/`) && !Path(`/auth/check`) && !PathPrefix(`/oauth2/`)
+      services:
+        - name: relay
+          port: 7466

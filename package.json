@@ -1,0 +1,38 @@
+{
+	"name": "portcullis",
+	"version": "0.2.0",
+	"private": true,
+	"type": "module",
+	"description": "Self-hosted omp collab behind OIDC: a relay for oauth2-proxy and an omp plugin that signs collab connections",
+	"license": "MIT",
+	"author": "FYWinds",
+	"homepage": "https://github.com/FYWinds/portcullis",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/FYWinds/portcullis.git"
+	},
+	"keywords": [
+		"omp",
+		"oh-my-pi",
+		"collab",
+		"oidc",
+		"oauth2-proxy",
+		"relay"
+	],
+	"omp": {
+		"extensions": [
+			"./plugin/src/index.ts"
+		]
+	},
+	"scripts": {
+		"test": "bun test",
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"relay": "bun relay/src/main.ts",
+		"check": "bun run typecheck && bun test"
+	},
+	"devDependencies": {
+		"@oh-my-pi/pi-coding-agent": "18.16.0",
+		"@types/bun": "^1.3.0",
+		"typescript": "^5.9.0"
+	}
+}

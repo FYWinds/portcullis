@@ -1,0 +1,25 @@
+# Values for the oauth2-proxy Helm chart (tested with chart 10.7.1, app v7.15.5):
+#   helm repo add oauth2-proxy https://oauth2-proxy.github.io/manifests
+#   helm install oauth2-proxy oauth2-proxy/oauth2-proxy -n portcullis -f oauth2-proxy-values.yaml
+config:
+  # Secret with client-id, client-secret and cookie-secret (see ../README.md).
+  existingSecret: oauth2-proxy
+extraArgs:
+  provider: oidc
+  oidc-issuer-url: https://auth.example.com
+  redirect-url: https://collab.example.com/oauth2/callback
+  whitelist-domain: collab.example.com
+  email-domain: "*"
+  code-challenge-method: S256
+  skip-provider-button: "true"
+  # forwardAuth mode: 202 for an authenticated request, a login redirect
+  # otherwise, identity in X-Auth-Request-*.
+  upstream: static://202
+  reverse-proxy: "true"
+  set-xauthrequest: "true"
+  # Only the ingress controller sets X-Forwarded-*; use your pod CIDR.
+  trusted-proxy-ip: 10.42.0.0/16
+  # The omp plugin's ID tokens, accepted as "Authorization: Bearer" when their
+  # aud is the plugin's client ID. Other bearers fall through to the cookie check.
+  skip-jwt-bearer-tokens: "true"
+  extra-jwt-issuers: https://auth.example.com=<plugin client id>

@@ -1,0 +1,35 @@
+# Try the stack on a laptop with no domain and no real identity provider:
+#
+#   docker compose --env-file local.env -f compose.yaml -f compose.local.yaml up --build
+#
+# Plain HTTP on http://localhost:8080 and a mock OIDC issuer (../../dev/mock-oidc.ts)
+# that signs in anyone as dev@example.com. Never expose this setup.
+services:
+  traefik:
+    command: !override
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+    ports: !override
+      - "127.0.0.1:8080:80"
+
+  oidc:
+    image: oven/bun:1.4.4-alpine
+    command: ["bun", "/mock-oidc.ts"]
+    volumes:
+      - ../../dev/mock-oidc.ts:/mock-oidc.ts:ro
+    environment:
+      # Tokens say iss=http://oidc:9000 (what oauth2-proxy verifies); the
+      # browser and the plugin reach the same server on localhost:9000.
+      ISSUER: http://oidc:9000
+      BROWSER_URL: http://localhost:9000
+      BIND: 0.0.0.0
+      EMAIL: dev@example.com
+    ports:
+      - "127.0.0.1:9000:9000"
+
+  oauth2-proxy:
+    depends_on:
+      - oidc
+    # oauth2-proxy exits when discovery fails; the mock may still be starting.
+    restart: on-failure

@@ -1,0 +1,110 @@
+# The relay. Rooms live in process memory: keep one replica and Recreate.
+# A restart drops rooms; omp hosts reconnect and recreate them.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: relay
+  namespace: portcullis
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: portcullis-relay
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: portcullis-relay
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: relay
+          image: ghcr.io/fywinds/portcullis # tag set in kustomization.yaml
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 7466
+              protocol: TCP
+          env:
+            # Set by oauth2-proxy (--set-xauthrequest) through the forwardAuth
+            # middleware, which also drops client-sent copies.
+            - name: PORTCULLIS_IDENTITY_HEADER
+              value: X-Auth-Request-Email
+            # Who may open rooms; remove to let any signed-in user host.
+            - name: PORTCULLIS_HOST_ALLOW
+              value: you@example.com
+            - name: PORTCULLIS_LOGIN_URL
+              value: https://collab.example.com/oauth2/start?rd={rd}
+          resources:
+            requests:
+              cpu: 10m
+              memory: 48Mi
+            limits:
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: relay
+  namespace: portcullis
+spec:
+  selector:
+    app.kubernetes.io/name: portcullis-relay
+  ports:
+    - name: http
+      port: 7466
+      targetPort: http
+---
+# The relay trusts the identity header, so only the ingress controller may
+# reach it. Adjust the selector to your controller's pod labels.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: relay
+  namespace: portcullis
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: portcullis-relay
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - port: 7466
+          protocol: TCP

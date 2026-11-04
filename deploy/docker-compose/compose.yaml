@@ -1,0 +1,113 @@
+# portcullis on one Docker host: Traefik (TLS via Let's Encrypt), oauth2-proxy
+# as the forwardAuth gate, and the relay. Everything is on one hostname:
+#
+#   /r/*, /auth/check  -> oauth2-proxy forwardAuth -> relay   (rooms, session check)
+#   /oauth2/*          -> oauth2-proxy                        (login, callback)
+#   everything else    -> relay                               (public browser client)
+#
+# Fill in .env (copy .env.example), then: docker compose up -d --build
+# See ../README.md for the OIDC client setup and the plugin configuration.
+name: portcullis
+
+services:
+  traefik:
+    image: traefik:v3.7
+    restart: unless-stopped
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.websecure.http.tls.certresolver=le
+      - --certificatesresolvers.le.acme.email=${ACME_EMAIL:?set ACME_EMAIL}
+      - --certificatesresolvers.le.acme.storage=/acme/acme.json
+      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - acme:/acme
+
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.5
+    restart: unless-stopped
+    environment:
+      OAUTH2_PROXY_PROVIDER: oidc
+      OAUTH2_PROXY_OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:?set OIDC_ISSUER_URL}
+      # The browser login client (authorization code + PKCE).
+      OAUTH2_PROXY_CLIENT_ID: ${OAUTH2_PROXY_CLIENT_ID:?set OAUTH2_PROXY_CLIENT_ID}
+      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET:-}
+      OAUTH2_PROXY_CODE_CHALLENGE_METHOD: S256
+      OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_PROXY_COOKIE_SECRET:?set OAUTH2_PROXY_COOKIE_SECRET}
+      OAUTH2_PROXY_COOKIE_SECURE: ${OAUTH2_PROXY_COOKIE_SECURE:-true}
+      # The browser bootstrap returns to ${PUBLIC_URL}/ after login.
+      OAUTH2_PROXY_WHITELIST_DOMAINS: ${WHITELIST_DOMAIN:-${PORTCULLIS_HOST}}
+      OAUTH2_PROXY_REDIRECT_URL: ${PUBLIC_URL:?set PUBLIC_URL}/oauth2/callback
+      OAUTH2_PROXY_EMAIL_DOMAINS: ${OAUTH2_PROXY_EMAIL_DOMAINS:-*}
+      OAUTH2_PROXY_SCOPE: openid email profile
+      OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4180
+      # forwardAuth mode: answer 202 for an authenticated request, a login
+      # redirect otherwise, and return the identity as X-Auth-Request-*.
+      OAUTH2_PROXY_UPSTREAMS: static://202
+      OAUTH2_PROXY_REVERSE_PROXY: "true"
+      OAUTH2_PROXY_SET_XAUTHREQUEST: "true"
+      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
+      # The omp plugin's ID tokens: accepted as "Authorization: Bearer" when
+      # their aud is the plugin's client. Other bearers fall through to the
+      # cookie check.
+      OAUTH2_PROXY_SKIP_JWT_BEARER_TOKENS: "true"
+      OAUTH2_PROXY_EXTRA_JWT_ISSUERS: ${OIDC_ISSUER_URL}=${PLUGIN_CLIENT_ID:?set PLUGIN_CLIENT_ID}
+    labels:
+      traefik.enable: "true"
+      # Login and callback live on the relay's hostname.
+      traefik.http.routers.portcullis-oauth2.rule: Host(`${PORTCULLIS_HOST:?set PORTCULLIS_HOST}`) && PathPrefix(`/oauth2/`)
+      traefik.http.routers.portcullis-oauth2.entrypoints: ${TRAEFIK_ENTRYPOINT:-websecure}
+      traefik.http.services.portcullis-oauth2.loadbalancer.server.port: "4180"
+      traefik.http.middlewares.portcullis-auth.forwardauth.address: http://oauth2-proxy:4180/
+      traefik.http.middlewares.portcullis-auth.forwardauth.trustForwardHeader: "true"
+      # Traefik copies these from the auth response and drops client-sent copies.
+      traefik.http.middlewares.portcullis-auth.forwardauth.authResponseHeaders: X-Auth-Request-Email,X-Auth-Request-User
+
+  relay:
+    build:
+      context: ../..
+      dockerfile: relay/Dockerfile
+    # Or a published image instead of building: image: ghcr.io/fywinds/portcullis:<version>
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      PORTCULLIS_IDENTITY_HEADER: X-Auth-Request-Email
+      # Comma-separated identities that may open rooms; unset = any signed-in user.
+      PORTCULLIS_HOST_ALLOW: ${HOST_ALLOW:-}
+      PORTCULLIS_LOGIN_URL: ${PUBLIC_URL}/oauth2/start?rd={rd}
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const r = await fetch('http://127.0.0.1:7466/healthz'); process.exit(r.ok ? 0 : 1)"]
+      interval: 30s
+      timeout: 5s
+      # Traefik routes to a container only once it reports healthy.
+      start_period: 20s
+      start_interval: 2s
+    labels:
+      traefik.enable: "true"
+      traefik.http.services.portcullis-relay.loadbalancer.server.port: "7466"
+      # Rooms and the session check: behind the auth gate.
+      traefik.http.routers.portcullis-rooms.rule: Host(`${PORTCULLIS_HOST}`) && (PathPrefix(`/r/`) || Path(`/auth/check`))
+      traefik.http.routers.portcullis-rooms.entrypoints: ${TRAEFIK_ENTRYPOINT:-websecure}
+      traefik.http.routers.portcullis-rooms.middlewares: portcullis-auth@docker
+      traefik.http.routers.portcullis-rooms.service: portcullis-relay
+      # The browser client: public. Must never match the gated paths, or a
+      # client-sent X-Auth-Request-Email would reach the relay unchecked.
+      traefik.http.routers.portcullis-web.rule: Host(`${PORTCULLIS_HOST}`) && !PathPrefix(`/r/`) && !Path(`/auth/check`) && !PathPrefix(`/oauth2/`)
+      traefik.http.routers.portcullis-web.entrypoints: ${TRAEFIK_ENTRYPOINT:-websecure}
+      traefik.http.routers.portcullis-web.service: portcullis-relay
+
+volumes:
+  acme:
