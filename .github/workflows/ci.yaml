@@ -1,12 +1,14 @@
 name: CI
 
-# Releases are git tags vX.Y.Z: they version the plugin (package.json) and
-# publish ghcr.io/fywinds/portcullis:vX.Y.Z (the relay image). Pushes to main
-# publish sha-* and main tags.
+# Releases are git tags, one namespace per artifact (one commit may carry both):
+#   vX.Y.Z        plugin (package.json version; `omp plugin upgrade` follows it)
+#   relay-vX.Y.Z  relay image -> ghcr.io/fywinds/portcullis:vX.Y.Z
+# Each is versioned on its own; argocd-image-updater follows the image's newest
+# vX.Y.Z. Branch pushes and plugin tags only run the checks: no image build.
 on:
   push:
     branches: [main]
-    tags: ["v*"]
+    tags: ["v*", "relay-v*"]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -29,7 +31,7 @@ jobs:
 
   relay-image:
     needs: check
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/relay-v')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -49,9 +51,7 @@ jobs:
         with:
           images: ${{ env.IMAGE }}
           tags: |
-            type=semver,pattern=v{{version}}
-            type=sha,prefix=sha-
-            type=raw,value=main,enable={{is_default_branch}}
+            type=match,pattern=^relay-(v\d+\.\d+\.\d+)$,group=1
       - name: Build and push
         uses: docker/build-push-action@v6
         with:

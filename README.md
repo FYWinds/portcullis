@@ -148,6 +148,17 @@ bun run check         # typecheck + tests
    - shortcuts still force an eager extension load (`canBindAfterStartup` in `extensibility/extensions/startup-deferral.ts`).
 3. Run `bun run check`, then the local stack: login, `/collab`, `omp join`, and a browser join.
 
+### Releasing
+
+The plugin and the relay image have separate tags and versions:
+
+| Tag | Publishes |
+|---|---|
+| `vX.Y.Z` | The plugin. Bump `version` in `package.json` to match. No image is built. |
+| `relay-vX.Y.Z` | `ghcr.io/fywinds/portcullis:vX.Y.Z`, the relay image |
+
+Branch pushes only run the checks. A weekly workflow (`ghcr-cleanup.yaml`) removes untagged and old `sha-*` images.
+
 ## Limitations
 
 - **One relay process.** Rooms live in memory: no horizontal scaling, and a restart drops rooms (hosts reconnect on their own).
