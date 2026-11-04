@@ -83,7 +83,10 @@ export default async function portcullis(pi: ExtensionAPI): Promise<void> {
 			ctx.ui.notify(`portcullis: ${configError}`, "error");
 			return;
 		}
-		if (!manager) return;
+		// Headless sessions (subagents, print mode, test harnesses) never host or
+		// join, and every keychain read from an unapproved binary opens a macOS
+		// password prompt. Commands still load the tokens on demand.
+		if (!manager || !ctx.hasUI) return;
 		await manager.load();
 		await manager.ensureFresh();
 		refreshStatus();
